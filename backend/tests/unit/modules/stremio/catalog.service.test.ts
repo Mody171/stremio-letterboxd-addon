@@ -11,6 +11,7 @@ import {
   transformLogEntriesToMetas,
   transformActivityToMetas,
   transformSearchResultsToMetas,
+  applyAdultPosterFixes,
 } from '../../../../src/modules/stremio/catalog.service.js';
 
 // ---------------------------------------------------------------------------
@@ -30,8 +31,9 @@ vi.mock('../../../../src/config/index.js', async (importOriginal) => {
   };
 });
 
-import { getTmdbExternalIds } from '../../../../src/lib/tmdb-client.js';
+import { getTmdbExternalIds, getTmdbMovieDetails } from '../../../../src/lib/tmdb-client.js';
 const mockGetTmdbExternalIds = vi.mocked(getTmdbExternalIds);
+const mockGetTmdbMovieDetails = vi.mocked(getTmdbMovieDetails);
 
 // ---------------------------------------------------------------------------
 // Factory helpers
@@ -122,7 +124,9 @@ function makeLetterboxdFilm(overrides: Partial<LetterboxdFilm> = {}): Letterboxd
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mockGetTmdbExternalIds.mockResolvedValue({ imdb_id: null });
+  mockGetTmdbMovieDetails.mockResolvedValue({ adult: false, poster_path: null });
 });
 
 describe('getImdbId', () => {
@@ -399,5 +403,97 @@ describe('transformSearchResultsToMetas', () => {
   it('handles films without contributions', () => {
     const metas = transformSearchResultsToMetas([makeLetterboxdFilm({ contributions: undefined })]);
     expect(metas[0]!.director).toBeUndefined();
+  });
+});
+
+describe('applyAdultPosterFixes', () => {
+  it('replaces poster with TMDB image for adult films', async () => {
+    mockGetTmdbMovieDetails.mockResolvedValueOnce({ adult: true, poster_path: '/adult-poster.jpg' });
+
+    const film = makeFilm();
+    const metas = transformSearchResultsToMetas([film as unknown as import('../../../../src/modules/letterboxd/letterboxd.client.js').LetterboxdFilm]);
+    // Manually create a meta that matches the film
+    const meta = {
+      id: 'tt1234567',
+      type: 'movie' as const,
+      name: 'Test Film',
+      poster: 'https://img.example.com/300.jpg',
+    };
+    const metaList = [meta];
+
+    await applyAdultPosterFixes([film], metaList, false);
+
+    expect(meta.poster).toBe('https://image.tmdb.org/t/p/w500/adult-poster.jpg');
+    expect(mockGetTmdbMovieDetails).toHaveBeenCalledWith(99999, 'test-api-key');
+  });
+
+  it('keeps Letterboxd poster for non-adult films', async () => {
+    // Use a different TMDB ID to avoid cache hit from previous test
+    mockGetTmdbMovieDetails.mockResolvedValueOnce({ adult: false, poster_path: '/normal-poster.jpg' });
+
+    const film = makeFilm({ links: [
+      { type: 'imdb', id: 'tt1234567', url: '' },
+      { type: 'tmdb', id: '11111', url: '' },
+    ] });
+    const meta = {
+      id: 'tt1234567',
+      type: 'movie' as const,
+      name: 'Test Film',
+      poster: 'https://img.example.com/300.jpg',
+    };
+
+    await applyAdultPosterFixes([film], [meta], false);
+
+    expect(meta.poster).toBe('https://img.example.com/300.jpg');
+  });
+
+  it('wraps adult TMDB poster with rating badge when showRatings is true', async () => {
+    mockGetTmdbMovieDetails.mockResolvedValueOnce({ adult: true, poster_path: '/adult-poster.jpg' });
+
+    const film = makeFilm({ rating: 4.0 });
+    const meta = {
+      id: 'tt1234567',
+      type: 'movie' as const,
+      name: 'Test Film',
+      poster: 'https://img.example.com/300.jpg',
+    };
+
+    await applyAdultPosterFixes([film], [meta], true);
+
+    expect(meta.poster).toBe(
+      'http://localhost:3001/poster?url=https%3A%2F%2Fimage.tmdb.org%2Ft%2Fp%2Fw500%2Fadult-poster.jpg&rating=4.0',
+    );
+  });
+
+  it('skips films without TMDB ID', async () => {
+    // Film with only an imdb link, no tmdb link
+    const film = makeFilm({ links: [{ type: 'imdb', id: 'tt5555555', url: '' }] });
+    const meta = {
+      id: 'tt5555555',
+      type: 'movie' as const,
+      name: 'Test Film',
+      poster: 'https://img.example.com/300.jpg',
+    };
+
+    await applyAdultPosterFixes([film], [meta], false);
+
+    expect(mockGetTmdbMovieDetails).not.toHaveBeenCalled();
+    expect(meta.poster).toBe('https://img.example.com/300.jpg');
+  });
+
+  it('skips films not present in metas (no imdb match)', async () => {
+    mockGetTmdbMovieDetails.mockResolvedValueOnce({ adult: true, poster_path: '/adult.jpg' });
+
+    const film = makeFilm(); // imdb: tt1234567
+    const meta = {
+      id: 'tt9999999', // different ID — no match
+      type: 'movie' as const,
+      name: 'Other Film',
+      poster: 'https://img.example.com/other.jpg',
+    };
+
+    await applyAdultPosterFixes([film], [meta], false);
+
+    expect(meta.poster).toBe('https://img.example.com/other.jpg');
   });
 });

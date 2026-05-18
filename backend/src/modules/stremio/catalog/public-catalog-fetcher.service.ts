@@ -171,6 +171,7 @@ export async function fetchWatchlistCatalogPublic(
   } while (cursor && page < 10);
 
   const allMetas = await transformWatchlistToMetas(allFilms, showRatings);
+  await applyAdultPosterFixes(allFilms, allMetas, showRatings);
   for (const film of allFilms) cacheFilmMapping(film);
 
   publicWatchlistCache.set(cacheKey, { metas: allMetas });
