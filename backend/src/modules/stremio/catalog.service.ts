@@ -90,12 +90,20 @@ export function getPosterUrl(film: FilmLike): string | undefined {
 
 /**
  * Build poster URL with rating badge overlay via proxy
+ * تم تعديلها بذكاء لدعم تحويل معرّفات IMDb مباشرة إلى رابط البوسترات العربي المخصص
  */
-export function buildPosterUrl(imdbId: string | undefined): string | undefined {
-  if (!imdbId) return undefined;
-  return `https://btttr.cc/poster-n/imdb/poster-default/${imdbId}.jpg?lang=ar`;
-}
+export function buildPosterUrl(originalPoster: string | undefined, rating?: number): string | undefined {
+  if (!originalPoster) return undefined;
 
+  // إذا تم تمرير معرف فيلم IMDb مباشرة (يبدأ بـ tt) قم بتحويله فوراً لرابط بوستراتك العربي
+  if (originalPoster.startsWith('tt')) {
+    return `https://btttr.cc/poster-n/imdb/poster-default/${originalPoster}.jpg?lang=ar`;
+  }
+
+  // الوضع الافتراضي لمنع انكسار السيرفر عند استدعائها من ملفات التثبيت أو دوال التثبيت الأخرى
+  if (!rating) return originalPoster;
+  return `${serverConfig.publicUrl}/poster?url=${encodeURIComponent(originalPoster)}&rating=${rating.toFixed(1)}`;
+}
 
 /**
  * Post-process metas in-place, replacing the Letterboxd poster with the TMDB image
@@ -244,7 +252,7 @@ export async function transformLogEntryToMeta(entry: LogEntry, showRatings = tru
     id: imdbId,
     type: 'movie',
     name: entry.film.name,
-    poster: showRatings ? buildPosterUrl(getPosterUrl(entry.film), entry.rating) : getPosterUrl(entry.film),
+    poster: buildPosterUrl(imdbId),
     year: entry.film.releaseYear,
     genres: entry.film.genres?.map((g) => g.name),
     director: entry.film.directors?.map((d) => d.name),
@@ -290,7 +298,7 @@ export async function transformListEntryToMeta(entry: ListEntry, showRatings = t
     id: imdbId,
     type: 'movie',
     name: film.name,
-    poster: showRatings ? buildPosterUrl(getPosterUrl(film), film.rating) : getPosterUrl(film),
+    poster: buildPosterUrl(imdbId),
     year: film.releaseYear,
     genres: film.genres?.map((g) => g.name),
     director: film.directors?.map((d) => d.name),
@@ -365,7 +373,7 @@ async function transformActivityItemToMeta(item: ActivityItem, showRatings = tru
     id: imdbId,
     type: 'movie',
     name: film.name,
-    poster: showRatings ? buildPosterUrl(getPosterUrl(film), film.rating) : getPosterUrl(film),
+    poster: buildPosterUrl(imdbId),
     year: film.releaseYear,
     genres: film.genres?.map((g) => g.name),
     director: film.directors?.map((d) => d.name),
@@ -422,7 +430,7 @@ export function transformSearchResultsToMetas(films: LetterboxdFilm[]): StremioM
       id: imdbId,
       type: 'movie',
       name: film.name,
-      poster: getPosterUrl(film),
+      poster: buildPosterUrl(imdbId),
       year: film.releaseYear,
       genres: film.genres?.map(g => g.name),
       director: directors,
