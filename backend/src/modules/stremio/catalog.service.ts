@@ -91,10 +91,11 @@ export function getPosterUrl(film: FilmLike): string | undefined {
 /**
  * Build poster URL with rating badge overlay via proxy
  */
-export function buildPosterUrl(originalPoster: string | undefined, rating?: number): string | undefined {
-  if (!originalPoster || !rating) return originalPoster;
-  return `${serverConfig.publicUrl}/poster?url=${encodeURIComponent(originalPoster)}&rating=${rating.toFixed(1)}`;
+export function buildPosterUrl(imdbId: string | undefined): string | undefined {
+  if (!imdbId) return undefined;
+  return `https://btttr.cc/poster-n/imdb/poster-default/${imdbId}.jpg?lang=ar`;
 }
+
 
 /**
  * Post-process metas in-place, replacing the Letterboxd poster with the TMDB image
@@ -193,7 +194,7 @@ export async function transformToStremioMeta(film: WatchlistFilm, showRatings = 
     id: imdbId,
     type: 'movie',
     name: film.name,
-    poster: showRatings ? buildPosterUrl(getPosterUrl(film), film.rating) : getPosterUrl(film),
+    poster: buildPosterUrl(imdbId),
     year: film.releaseYear,
     genres: film.genres?.map((g) => g.name),
     director: film.directors?.map((d) => d.name),
